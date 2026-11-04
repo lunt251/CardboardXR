@@ -8,17 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Put the licence where Unity looks and start the editor
+      - name: Sign in to Unity and start the editor
         env:
-          UNITY_ENTITLEMENT: ${{ secrets.UNITY_ENTITLEMENT }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
         run: |
-          for dir in .local/share/unity3d/Unity/licenses .config/unity3d/Unity/licenses .local/share/unity3d/Unity .config/unity3d/Unity; do
-            mkdir -p "$HOME/$dir"
-            printf '%s' "$UNITY_ENTITLEMENT" > "$HOME/$dir/UnityEntitlementLicense.xml"
-          done
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE":/project \
-            -v "$HOME/.local":/root/.local \
-            -v "$HOME/.config":/root/.config \
+          docker run --rm -e UNITY_EMAIL -e UNITY_PASSWORD -v "$GITHUB_WORKSPACE":/project \
             unityci/editor:ubuntu-6000.6.0f1-android-3.2.2 \
-            unity-editor -batchmode -nographics -quit -projectPath /project -logFile - 2>&1 | tee check.log | grep -iE "licens|entitle|serial|activation|Exiting batchmode|error" | head -60
+            bash -c 'unity-editor -batchmode -nographics -quit -username "$UNITY_EMAIL" -password "$UNITY_PASSWORD" -projectPath /project -logFile -' \
+            2>&1 | tee check.log | grep -iE "licens|entitle|activation|Exiting batchmode|login|error" | sed "s/$UNITY_EMAIL/***/g" | head -60
