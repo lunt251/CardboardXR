@@ -1,0 +1,80 @@
+name: Build Android APK
+
+# Builds the app in Unity's Linux Android image and uploads CardboardXR.apk as an artifact.
+# Run it from the Actions tab (Run workflow) or by pushing to the "drawing-tools" branch.
+#
+# One-time setup, in the repository's Settings > Secrets and variables > Actions:
+#   UNITY_LICENSE   the contents of the Unity Personal licence file (.ulf) from manual activation.
+#                   Run the "Request Unity activation file" workflow to get the .alf to activate with.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [drawing-tools]
+
+env:
+  UNITY_IMAGE: unityci/editor:ubuntu-6000.6.0f1-android-3.2.2
+  # A different app id from the published app, so this build installs next to it instead of failing on
+  # a signature mismatch (CI signs with Unity's debug key).
+  CARDBOARDXR_BUNDLE_ID: com.cardboardxr.drawing
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space for the Unity image
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/lib/android "$AGENT_TOOLSDIRECTORY"
+          df -h /
+
+      - uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-Android-${{ hashFiles('Packages/packages-lock.json', 'ProjectSettings/ProjectVersion.txt') }}
+          restore-keys: Library-Android-
+
+      - name: Pull the Unity image
+        run: docker pull "$UNITY_IMAGE"
+
+      - name: Install the Unity licence
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+        run: |
+          test -n "$UNITY_LICENSE" || { echo "::error::The UNITY_LICENSE secret isn't set"; exit 1; }
+          mkdir -p "$HOME/.local/share/unity3d/Unity"
+          printf '%s' "$UNITY_LICENSE" > "$HOME/.local/share/unity3d/Unity/Unity_lic.ulf"
+
+      - name: Build the APK
+        run: |
+          docker run --rm \
+            -e CARDBOARDXR_BUNDLE_ID \
+            -v "$GITHUB_WORKSPACE":/project \
+            -v "$HOME/.local/share/unity3d":/root/.local/share/unity3d \
+            -w /project \
+            "$UNITY_IMAGE" \
+            unity-editor -batchmode -nographics -projectPath /project -buildTarget Android \
+              -executeMethod ProjectBootstrap.StereoBuilder.BuildAndroid -logFile /project/build.log
+
+      - name: Show the build log's important lines
+        if: always()
+        run: |
+          grep -E "\[Build\]|error CS|Exception|Build Succeeded|Build Failed" build.log | head -60 || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CardboardXR-apk
+          path: Builds/CardboardXR.apk
+          if-no-files-found: error
+
+      - name: Give the cache back to the runner's user
+        if: always()
+        run: sudo chown -R "$USER" Library || true

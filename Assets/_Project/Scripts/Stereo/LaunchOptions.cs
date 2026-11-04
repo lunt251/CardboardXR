@@ -18,23 +18,53 @@ namespace CardboardXR.Stereo
     {
         public const string k_EnvironmentPrefix = "CARDBOARDXR_";
 
+        const string k_SavedPrefix = "opt_";
+
+        // A launch option given by the launch script wins; failing that, the value saved from the app's
+        // own settings screen (SetSaved); failing that, the fallback.
         public static int GetInt(string name, int fallback)
         {
+            if (TryGetLaunched(name, out var launched))
+                return launched;
+            return HasSaved(name) ? PlayerPrefs.GetInt(k_SavedPrefix + name) : fallback;
+        }
+
+        public static bool HasSaved(string name) => PlayerPrefs.HasKey(k_SavedPrefix + name);
+
+        // Keeps a value for the next launches, for options the in-app settings screen sets.
+        public static void SetSaved(string name, int value)
+        {
+            PlayerPrefs.SetInt(k_SavedPrefix + name, value);
+            PlayerPrefs.Save();
+        }
+
+        public static void ClearSaved(string name)
+        {
+            PlayerPrefs.DeleteKey(k_SavedPrefix + name);
+            PlayerPrefs.Save();
+        }
+
+        static bool TryGetLaunched(string name, out int value)
+        {
+            value = 0;
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
             {
                 using var unityPlayer = new AndroidJavaClass("com.unity3d.player.UnityPlayer");
                 using var activity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity");
                 using var intent = activity.Call<AndroidJavaObject>("getIntent");
-                return intent.Call<int>("getIntExtra", name, fallback);
+                if (!intent.Call<bool>("hasExtra", name))
+                    return false;
+                value = intent.Call<int>("getIntExtra", name, 0);
+                return true;
             }
             catch (AndroidJavaException e)
             {
                 Debug.LogWarning($"[Stereo] Couldn't read launch option {name}: {e.Message}");
             }
-            return fallback;
+            return false;
 #else
-            return TryParse(Environment.GetEnvironmentVariable(k_EnvironmentPrefix + name), out var value) ? value : fallback;
+            return TryParse(Environment.GetEnvironmentVariable(k_EnvironmentPrefix + name), out value);
 #endif
         }
 

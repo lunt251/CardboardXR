@@ -43,7 +43,28 @@ namespace CardboardXR.Demos
         public CoreState State => new(
             m_Fusion.CurrentMode == HeadPoseFusion.Mode.SixDof, m_Passthrough.IsOn, m_HandTracker.enabled);
 
-        void Awake() => Instance = this;
+        void Awake()
+        {
+            Instance = this;
+            m_HandsForcedOff = LaunchOptions.GetInt("handsOff", 0) != 0;
+        }
+
+        bool m_HandsForcedOff;
+
+        // The user's switch for hand tracking, from the Tools panel: on, hands never run, whatever a demo
+        // asks, which saves the most heat when the hands aren't needed (drawing on paper). Kept between
+        // launches. Gaze and the screen tap still click.
+        public bool HandsForcedOff
+        {
+            get => m_HandsForcedOff;
+            set
+            {
+                m_HandsForcedOff = value;
+                LaunchOptions.SetSaved("handsOff", value ? 1 : 0);
+                if (value)
+                    m_HandTracker.enabled = false;
+            }
+        }
 
         void OnDestroy()
         {
@@ -55,7 +76,7 @@ namespace CardboardXR.Demos
         // then 6DoF, which passthrough needs; then passthrough, as a choice 6DoF won't undo.
         public void Apply(CoreState state)
         {
-            m_HandTracker.enabled = state.Hands;
+            m_HandTracker.enabled = state.Hands && !m_HandsForcedOff;
             if (!state.Passthrough)
                 m_Passthrough.Choose(false);
             m_Fusion.SetMode(state.SixDof ? HeadPoseFusion.Mode.SixDof : HeadPoseFusion.Mode.ThreeDof);

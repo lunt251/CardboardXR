@@ -1,0 +1,22 @@
+name: Request Unity activation file
+
+# Run once to get the .alf file for activating a Unity Personal licence by hand
+# (https://license.unity3d.com/manual), which gives the .ulf to store as the UNITY_LICENSE secret.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  request:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ask Unity for an activation file
+        run: |
+          docker run --rm -v "$PWD":/out unityci/editor:ubuntu-6000.6.0f1-android-3.2.2 \
+            bash -c 'unity-editor -batchmode -nographics -createManualActivationFile -logFile - ; cp -v Unity_v*.alf /out/ || true'
+          ls -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unity-activation-file
+          path: Unity_v*.alf
+          if-no-files-found: error

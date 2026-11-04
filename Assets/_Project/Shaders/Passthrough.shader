@@ -8,6 +8,12 @@ Shader "CardboardXR/Passthrough"
     Properties
     {
         [MainTexture] _BaseMap ("Camera Image", 2D) = "black" {}
+        _Zoom ("Zoom", Float) = 1
+        _Pan ("Pan", Vector) = (0, 0, 0, 0)
+        _Brightness ("Brightness", Float) = 1
+        _Contrast ("Contrast", Float) = 1
+        _Saturation ("Saturation", Float) = 1
+        _Opacity ("Opacity", Float) = 1
     }
 
     SubShader
@@ -27,6 +33,7 @@ Shader "CardboardXR/Passthrough"
             Cull Off
             ZWrite Off
             ZTest Always
+            Blend SrcAlpha OneMinusSrcAlpha
 
             HLSLPROGRAM
             #pragma vertex Vert
@@ -39,6 +46,12 @@ Shader "CardboardXR/Passthrough"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
+                float _Zoom;
+                float4 _Pan;
+                float _Brightness;
+                float _Contrast;
+                float _Saturation;
+                float _Opacity;
             CBUFFER_END
 
             struct Attributes
@@ -63,7 +76,13 @@ Shader "CardboardXR/Passthrough"
 
             half4 Frag(Varyings input) : SV_Target
             {
-                return half4(SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv).rgb, 1.0);
+                float2 uv = (input.uv - 0.5) / max(_Zoom, 0.01) + 0.5 + _Pan.xy;
+                half3 color = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uv).rgb;
+                half luma = dot(color, half3(0.299, 0.587, 0.114));
+                color = lerp(luma.xxx, color, _Saturation);
+                color = (color - 0.5) * _Contrast + 0.5;
+                color *= _Brightness;
+                return half4(saturate(color), _Opacity);
             }
             ENDHLSL
         }

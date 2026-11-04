@@ -43,6 +43,7 @@ namespace ProjectBootstrap
         const string ReticleShaderPath = "Assets/_Project/Shaders/Reticle.shader";
         const string BoundaryShaderPath = "Assets/_Project/Shaders/Boundary.shader";
         const string PassthroughShaderPath = "Assets/_Project/Shaders/Passthrough.shader";
+        const string PhotoShaderPath = "Assets/_Project/Shaders/Photo.shader";
         const string ShadowCatcherShaderPath = "Assets/_Project/Shaders/ShadowCatcher.shader";
         const string LitShaderName = "Universal Render Pipeline/Simple Lit";
         // Shadows only matter near the user, on the surfaces in reach; a short distance keeps the
@@ -179,6 +180,7 @@ namespace ProjectBootstrap
             var reticleShader = AssetDatabase.LoadAssetAtPath<Shader>(ReticleShaderPath);
             var boundaryShader = AssetDatabase.LoadAssetAtPath<Shader>(BoundaryShaderPath);
             var passthroughShader = AssetDatabase.LoadAssetAtPath<Shader>(PassthroughShaderPath);
+            var photoShader = AssetDatabase.LoadAssetAtPath<Shader>(PhotoShaderPath);
             var unlit = Shader.Find(UnlitShaderName);
             var catalog = AssetDatabase.LoadAssetAtPath<DemoCatalog>(DemoScenes.CatalogPath);
             if (catalog == null)
@@ -187,7 +189,8 @@ namespace ProjectBootstrap
                 EditorApplication.Exit(1);
                 return null;
             }
-            if (distortionShader == null || reticleShader == null || boundaryShader == null || passthroughShader == null || unlit == null)
+            if (distortionShader == null || reticleShader == null || boundaryShader == null || passthroughShader == null ||
+                photoShader == null || unlit == null)
             {
                 Debug.LogError($"[StereoBuilder] Missing shader: {DistortionShaderPath}, {ReticleShaderPath}, " +
                                $"{BoundaryShaderPath}, {PassthroughShaderPath} or {UnlitShaderName}.");
@@ -209,9 +212,11 @@ namespace ProjectBootstrap
             var (poseSource, origin, arCamera, arViewOnly) = BuildViewerSetup(rig);
             var fusion = head.AddComponent<HeadPoseFusion>();
             var passthrough = origin.AddComponent<PassthroughController>();
+            var tools = origin.AddComponent<ToolsPanel>();
+            BuildPhotoViewer(photoShader);
             var demosObject = new GameObject("Demos");
             var demos = demosObject.AddComponent<DemoManager>();
-            var (toolbar, panel) = BuildToolbar(fusion, passthrough, demos);
+            var (toolbar, panel) = BuildToolbar(fusion, passthrough, demos, tools);
             var modeToggle = toolbar[2];
             var passthroughToggle = toolbar[3];
             var serializedFusion = new SerializedObject(fusion);
@@ -617,6 +622,16 @@ namespace ProjectBootstrap
             serializedView.ApplyModifiedPropertiesWithoutUndo();
         }
 
+        // The photo overlay (PhotoViewer): a picture shown over the room, set from the Tools panel.
+        static void BuildPhotoViewer(Shader photoShader)
+        {
+            var material = SaveAsset(new Material(photoShader) { name = "Photo" }, $"{GeneratedFolder}/Photo.mat");
+            var viewer = new GameObject("Photo Viewer").AddComponent<PhotoViewer>();
+            var serialized = new SerializedObject(viewer);
+            serialized.FindProperty("m_Material").objectReferenceValue = material;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
         // Camera passthrough: the whole camera image, drawn into a texture, shown on a screen quad in
         // front of the AR camera that both eyes see. Its shader draws it first, ignoring depth and
         // writing none, so virtual things always draw over it, however near or far they are.
@@ -777,7 +792,7 @@ namespace ProjectBootstrap
         // showing. Scan Room is added once the room boundary exists, then ArrangeToolbar finishes it.
         // Returns the items (Apps, Recenter, 6DoF, Passthrough, then one empty for Scan Room) and the panel.
         static (M3Button[] items, RectTransform panel) BuildToolbar(HeadPoseFusion fusion,
-            PassthroughController passthrough, DemoManager demos)
+            PassthroughController passthrough, DemoManager demos, ToolsPanel tools)
         {
             // Low, out of the way, until SettingsSummoner opens it in front of the user.
             const float pitch = -30f;
@@ -790,7 +805,7 @@ namespace ProjectBootstrap
 
             // The view switch isn't here: it's on the screen itself, in the settings menu, since it's
             // pressed with the phone in hand where this panel can't be reached.
-            var items = new M3Button[5];
+            var items = new M3Button[6];
             // Apps shows the app library above the panel (BuildLibrary), the way to the lobby and
             // between demos.
             var library = demos.gameObject.AddComponent<AppLibrary>();
@@ -798,6 +813,8 @@ namespace ProjectBootstrap
             items[1] = ToolbarItem(panel, "Recenter", "my_location", "Recenter", fusion.Recenter);
             items[2] = ToolbarItem(panel, "Tracking Mode", "view_in_ar", "6DoF", fusion.ToggleMode);
             items[3] = ToolbarItem(panel, "Passthrough", "visibility", "Passthrough", passthrough.Toggle);
+            // Camera view, photo overlay and app settings (ToolsPanel).
+            items[5] = ToolbarItem(panel, "Tools", "palette", "Tools", tools.Toggle);
             return (items, panel);
         }
 
@@ -871,9 +888,9 @@ namespace ProjectBootstrap
         // Orders the items into their groups, with a divider before each group after the first.
         static void ArrangeToolbar(RectTransform panel, M3Button[] items)
         {
-            // Apps | Recenter, Scan Room | 6DoF, Passthrough.
-            var order = new[] { items[0], items[1], items[4], items[2], items[3] };
-            var groups = new[] { 0, 1, 1, 2, 2 };
+            // Apps, Tools | Recenter, Scan Room | 6DoF, Passthrough.
+            var order = new[] { items[0], items[5], items[1], items[4], items[2], items[3] };
+            var groups = new[] { 0, 0, 1, 1, 2, 2 };
             var dividers = new Image[3];
             for (var g = 1; g < dividers.Length; g++)
             {

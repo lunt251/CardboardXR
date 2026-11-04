@@ -67,6 +67,123 @@ namespace CardboardXR.Stereo
 
         public bool IsOn => m_On;
 
+        static readonly int k_ZoomId = Shader.PropertyToID("_Zoom");
+        static readonly int k_PanId = Shader.PropertyToID("_Pan");
+        static readonly int k_BrightnessId = Shader.PropertyToID("_Brightness");
+        static readonly int k_ContrastId = Shader.PropertyToID("_Contrast");
+        static readonly int k_SaturationId = Shader.PropertyToID("_Saturation");
+        static readonly int k_OpacityId = Shader.PropertyToID("_Opacity");
+
+        float m_Zoom = 1f;
+        Vector2 m_Pan;
+        float m_Brightness = 1f;
+        float m_Contrast = 1f;
+        float m_Saturation = 1f;
+        float m_Opacity = 1f;
+        bool m_Frozen;
+        bool m_AutoFocus = true;
+
+        // How the camera image is shown, kept between launches (PlayerPrefs). Zoom crops into the middle
+        // of the image (digital zoom), Pan moves the crop. Opacity under 1 lets the dark background through.
+        public float Zoom { get => m_Zoom; set { m_Zoom = Mathf.Clamp(value, 1f, 4f); ClampPan(); SaveLook(); } }
+        public float PanX { get => m_Pan.x; set { m_Pan.x = value; ClampPan(); SaveLook(); } }
+        public float PanY { get => m_Pan.y; set { m_Pan.y = value; ClampPan(); SaveLook(); } }
+        public float Brightness { get => m_Brightness; set { m_Brightness = Mathf.Clamp(value, 0.3f, 2f); SaveLook(); } }
+        public float Contrast { get => m_Contrast; set { m_Contrast = Mathf.Clamp(value, 0.3f, 2f); SaveLook(); } }
+        public float Saturation { get => m_Saturation; set { m_Saturation = Mathf.Clamp(value, 0f, 2f); SaveLook(); } }
+        public float Opacity { get => m_Opacity; set { m_Opacity = Mathf.Clamp(value, 0.1f, 1f); SaveLook(); } }
+
+        // Stops taking new camera images: the picture stays as it was, held in the view.
+        public bool Frozen { get => m_Frozen; set { m_Frozen = value; Debug.Log($"[Passthrough] {(value ? "Frozen" : "Live")}"); } }
+
+        // Whether the camera refocuses by itself. Off, it holds its focus where it was.
+        public bool AutoFocus
+        {
+            get => m_AutoFocus;
+            set
+            {
+                m_AutoFocus = value;
+                LaunchOptions.SetSaved("autofocus", value ? 1 : 0);
+                ApplyAutoFocus();
+            }
+        }
+
+        // The camera image texture's height in pixels (720 or 1080 are sensible): sharper, and hotter.
+        public int TextureHeight
+        {
+            get => m_TextureHeight;
+            set
+            {
+                m_TextureHeight = Mathf.Clamp(value, 360, 2160);
+                LaunchOptions.SetSaved("ptHeight", m_TextureHeight);
+            }
+        }
+
+        public void ResetLook()
+        {
+            m_Zoom = 1f;
+            m_Pan = Vector2.zero;
+            m_Brightness = m_Contrast = m_Saturation = m_Opacity = 1f;
+            SaveLook();
+        }
+
+        // Pans only as far as the zoomed crop stays inside the image.
+        void ClampPan()
+        {
+            var limit = 0.5f - 0.5f / m_Zoom;
+            m_Pan = new Vector2(Mathf.Clamp(m_Pan.x, -limit, limit), Mathf.Clamp(m_Pan.y, -limit, limit));
+        }
+
+        void SaveLook()
+        {
+            ApplyLook();
+            LaunchOptions.SetSaved("ptZoom", Mathf.RoundToInt(m_Zoom * 100f));
+            LaunchOptions.SetSaved("ptPanX", Mathf.RoundToInt(m_Pan.x * 1000f));
+            LaunchOptions.SetSaved("ptPanY", Mathf.RoundToInt(m_Pan.y * 1000f));
+            LaunchOptions.SetSaved("ptBright", Mathf.RoundToInt(m_Brightness * 100f));
+            LaunchOptions.SetSaved("ptContrast", Mathf.RoundToInt(m_Contrast * 100f));
+            LaunchOptions.SetSaved("ptSat", Mathf.RoundToInt(m_Saturation * 100f));
+            LaunchOptions.SetSaved("ptOpacity", Mathf.RoundToInt(m_Opacity * 100f));
+        }
+
+        void LoadLook()
+        {
+            m_Zoom = Mathf.Clamp(LaunchOptions.GetInt("ptZoom", 100) / 100f, 1f, 4f);
+            m_Pan = new Vector2(LaunchOptions.GetInt("ptPanX", 0) / 1000f, LaunchOptions.GetInt("ptPanY", 0) / 1000f);
+            ClampPan();
+            m_Brightness = LaunchOptions.GetInt("ptBright", 100) / 100f;
+            m_Contrast = LaunchOptions.GetInt("ptContrast", 100) / 100f;
+            m_Saturation = LaunchOptions.GetInt("ptSat", 100) / 100f;
+            m_Opacity = Mathf.Clamp(LaunchOptions.GetInt("ptOpacity", 100) / 100f, 0.1f, 1f);
+            m_AutoFocus = LaunchOptions.GetInt("autofocus", 1) != 0;
+            m_TextureHeight = LaunchOptions.GetInt("ptHeight", m_TextureHeight);
+        }
+
+        void ApplyLook()
+        {
+            if (m_Screen == null)
+                return;
+            var material = m_Screen.material;
+            material.SetFloat(k_ZoomId, m_Zoom);
+            material.SetVector(k_PanId, new Vector4(m_Pan.x, m_Pan.y, 0f, 0f));
+            material.SetFloat(k_BrightnessId, m_Brightness);
+            material.SetFloat(k_ContrastId, m_Contrast);
+            material.SetFloat(k_SaturationId, m_Saturation);
+            material.SetFloat(k_OpacityId, m_Opacity);
+        }
+
+        void ApplyAutoFocus()
+        {
+            try
+            {
+                m_CameraManager.autoFocusRequested = m_AutoFocus;
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Passthrough] Couldn't set autofocus: {e.Message}");
+            }
+        }
+
         // Where the image should be, in meters from the camera, or null for m_Distance. It eases there.
         public float? FocusDistance
         {
@@ -84,6 +201,8 @@ namespace CardboardXR.Stereo
             m_CameraManager = m_ArCamera.GetComponent<ARCameraManager>();
             m_PoseDriver = m_ArCamera.GetComponent<TrackedPoseDriver>();
             m_ShownDistance = m_Distance;
+            LoadLook();
+            ApplyLook();
         }
 
         // After the other components' OnEnable, so the mode set here sticks.
@@ -130,6 +249,7 @@ namespace CardboardXR.Stereo
             {
                 m_Fusion.SetMode(HeadPoseFusion.Mode.SixDof);
                 m_CameraManager.frameReceived += OnCameraFrame;
+                ApplyAutoFocus();
             }
             else
             {
@@ -150,6 +270,8 @@ namespace CardboardXR.Stereo
 
         void OnCameraFrame(ARCameraFrameEventArgs args)
         {
+            if (m_Frozen && m_HasImage)
+                return;
             var source = m_CameraManager.cameraMaterial;
             if (source == null || args.textures == null || args.textures.Count == 0 ||
                 !args.displayMatrix.HasValue || !args.projectionMatrix.HasValue)
@@ -189,6 +311,25 @@ namespace CardboardXR.Stereo
                       $"{2f * Mathf.Atan(m_FrustumSize.x / 2f) * Mathf.Rad2Deg:F0} x " +
                       $"{2f * Mathf.Atan(m_FrustumSize.y / 2f) * Mathf.Rad2Deg:F0} deg");
             LogCameraMaterial(args);
+            LogCameraConfigurations();
+        }
+
+        // What the phone's camera offers ARCore, logged once, to find out whether any other lens or
+        // resolution can be asked for.
+        void LogCameraConfigurations()
+        {
+            try
+            {
+                using var configurations = m_CameraManager.GetConfigurations(Unity.Collections.Allocator.Temp);
+                var text = new System.Text.StringBuilder();
+                foreach (var configuration in configurations)
+                    text.Append($" {configuration.width}x{configuration.height}@{configuration.framerate}");
+                Debug.Log($"[Passthrough] Camera configurations ({configurations.Length}):{text}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[Passthrough] Couldn't list camera configurations: {e.Message}");
+            }
         }
 
         // ARCore's background shader maps screen UV to camera-texture UV as
