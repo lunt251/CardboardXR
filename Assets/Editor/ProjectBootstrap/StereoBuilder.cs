@@ -66,6 +66,29 @@ namespace ProjectBootstrap
             BuildAndExit(BuildScenes(), AndroidApk, BuildTarget.Android);
         }
 
+        // For Unity Build Automation (the cloud service), which exports the project itself and so never runs
+        // BuildAndroid: set this as the target's pre-export method, "ProjectBootstrap.StereoBuilder.PreExport".
+        // It generates the Core scene and the demos' starter scenes and puts them in the build settings, the
+        // first scene being Core. The app id is CARDBOARDXR_BUNDLE_ID if the target sets that environment
+        // variable, else k_CloudBundleId, so the cloud build installs beside the published app instead of
+        // failing on a signature mismatch (the cloud signs with its own key).
+        const string k_CloudBundleId = "com.cardboardxr.drawing";
+
+        public static void PreExport()
+        {
+            var bundleId = System.Environment.GetEnvironmentVariable("CARDBOARDXR_BUNDLE_ID");
+            if (string.IsNullOrWhiteSpace(bundleId))
+                bundleId = k_CloudBundleId;
+            PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Android, bundleId.Trim());
+            var scenes = BuildScenes();
+            var settingsScenes = new EditorBuildSettingsScene[scenes.Length];
+            for (var i = 0; i < scenes.Length; i++)
+                settingsScenes[i] = new EditorBuildSettingsScene(scenes[i], true);
+            EditorBuildSettings.scenes = settingsScenes;
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[Build] Pre-export: app id {bundleId.Trim()}, {scenes.Length} scenes, starting with {scenes[0]}");
+        }
+
         // The same scenes as an Xcode project for the iPhone, which Xcode then builds and signs.
         // Invoke with: -buildTarget iOS -executeMethod ProjectBootstrap.StereoBuilder.BuildIos
         public static void BuildIos()
