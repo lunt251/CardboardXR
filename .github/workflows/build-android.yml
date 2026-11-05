@@ -1,16 +1,12 @@
 name: Build Android APK
 
-# Builds the app in Unity's Linux Android image and uploads CardboardXR.apk as an artifact.
-# Run it from the Actions tab (Run workflow) or by pushing to the "drawing-tools" branch.
-#
-# One-time setup, in the repository's Settings > Secrets and variables > Actions:
-#   UNITY_LICENSE   the contents of the Unity Personal licence file (.ulf) from manual activation.
-#                   Run the "Request Unity activation file" workflow to get the .alf to activate with.
+# NOT USABLE WITH UNITY PERSONAL. Unity's licence server gives Personal accounts no headless (batch-mode)
+# entitlement, so the editor refuses to start here ("com.unity.editor.headless was not found"). This only
+# works with a paid Unity serial (UNITY_SERIAL, UNITY_EMAIL, UNITY_PASSWORD). With Personal, use Unity Build
+# Automation instead, with ProjectBootstrap.StereoBuilder.PreExport as the target's pre-export method.
 
 on:
   workflow_dispatch:
-  push:
-    branches: [drawing-tools]
 
 env:
   UNITY_IMAGE: unityci/editor:ubuntu-6000.6.0f1-android-3.2.2
